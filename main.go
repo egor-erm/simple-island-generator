@@ -6,5 +6,5 @@ func main() {
 	island := generator.NewIsland(5)
 
 	island.GenIsland()
-	island.SaveImage("myIsland")
+	island.SaveImage("myIsland125r")
 }
