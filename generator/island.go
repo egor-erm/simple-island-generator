@@ -2,17 +2,10 @@ package generator
 
 import (
 	"math"
+	"strconv"
 
 	"github.com/aquilax/go-perlin"
 	goimage "github.com/egor-erm/goimager/imager"
-)
-
-const (
-	alpha  = 2.
-	beta   = 2.
-	n      = 5
-	radius = 125
-	step   = (math.Pi / 2) / radius
 )
 
 var blocks []string = []string{
@@ -23,104 +16,88 @@ var blocks []string = []string{
 	"#FCF7F2",
 }
 
-type Pos struct {
-	X int
-	Y int
-}
+const (
+	alpha  = 2.
+	beta   = 2.
+	n      = 8
+	radius = 120
+	step   = (math.Pi / 2) / radius // radians
+)
 
 type Island struct {
-	Seed      int64
-	Structure map[Pos]float64
+	Seed   int64
+	Blocks map[Location]string
 }
 
-func NewIsland(seed int64) *Island {
-	return &Island{
-		Seed:      seed,
-		Structure: make(map[Pos]float64),
+type Location [2]int32
+
+func NewIsland(seed int64) {
+	island := &Island{
+		Seed:   seed,
+		Blocks: make(map[Location]string),
 	}
-}
 
-func (island *Island) GenIsland() {
-	island.genLandscape()
-	island.genIslandShape()
-}
+	perlin := perlin.NewPerlin(alpha, beta, n, seed)
 
-func (island *Island) genLandscape() {
-	p := perlin.NewPerlin(alpha, beta, n, island.Seed)
-	for x := -radius; x <= radius; x++ {
-		for y := -radius; y <= radius; y++ {
-			var max float64
-			if int(math.Abs(float64(x))) >= int(math.Abs(float64(y))) {
-				max = math.Abs(float64(x))
+	var height_map map[Location]float64 = make(map[Location]float64)
+	var max_height, min_height float64
+
+	for x := int32(-radius); x <= radius; x++ {
+		for y := int32(-radius); y <= radius; y++ {
+			pos := Location{x, y}
+
+			max := math.Hypot(float64(x), float64(y))
+
+			height := math.Abs(perlin.Noise2D(float64(x)/60, float64(y)/60))
+
+			height = 3 * height * math.Cos(max*step)
+
+			m := 1.3
+			height -= -1*m*math.Cos(max*step) + 1
+
+			height = math.Round(height*1000) / 1000
+
+			if height <= 0 {
+				height = 0
 			} else {
-				max = math.Abs(float64(y))
+				max_height = math.Max(max_height, height)
+				min_height = math.Min(min_height, height)
 			}
 
-			pos := Pos{
-				X: x,
-				Y: y,
-			}
-
-			h := math.Abs(p.Noise2D(float64(x)/65, float64(y)/65))
-			h = math.Ceil(h*1000) / 1000
-
-			island.Structure[pos] = h*math.Cos(max*step) + 0.036
+			height_map[pos] = height
 		}
 	}
-}
 
-func (island *Island) genIslandShape() {
-	for x := -radius; x <= radius; x++ {
-		for y := -radius; y <= radius; y++ {
-			var max float64
-			if int(math.Abs(float64(x))) >= int(math.Abs(float64(y))) {
-				max = math.Abs(float64(x))
-			} else {
-				max = math.Abs(float64(y))
-			}
+	img := goimage.NewWithCorners(strconv.Itoa(int(seed))+".png", -radius, -radius, radius, radius)
+	img.FillAllHex("#329FC1") //вода
 
-			k := 0.18 * math.Tan(max*step)
-			pos := Pos{
-				X: x,
-				Y: y,
-			}
-			if h, ok := island.Structure[pos]; ok {
-				if h-k < 0 {
-					island.Structure[pos] = 0
-				} else {
-					island.Structure[pos] = h - k
-				}
-
-			} else {
-				island.Structure[pos] = 0
-			}
-		}
-	}
-}
-
-func (island *Island) SaveImage(name string) {
-	img := goimage.NewWithCorners(name+".png", -radius, -radius, radius, radius)
-	img.FillAllHex("#41B2D8")
-
-	for k, value := range island.Structure {
+	height_diff := max_height - min_height
+	for k, value := range height_map {
 		if value == 0 {
 			continue
 		}
-		value += 0.16
-		step := float64(1) / float64(len(blocks))
-		otv := value / step
-		var bl string
 
-		if int(otv) < len(blocks) {
-			bl = blocks[int(otv)]
-		} else {
-			bl = blocks[len(blocks)-1]
+		block := int((value - min_height) / height_diff * float64(len(blocks)))
+		if block >= len(blocks) {
+			block = len(blocks) - 1
 		}
 
-		if value > 0 {
-			img.SetHexPixel(k.X, k.Y, bl)
-		}
+		color := blocks[block]
+
+		island.Blocks[Location{k[0], k[1]}] = color
+	}
+
+	for pos, bl := range island.Blocks {
+		img.SetHexPixel(int(pos.X()), int(pos.Y()), bl)
 	}
 
 	img.Save()
+}
+
+func (loc *Location) X() int32 {
+	return loc[0]
+}
+
+func (loc *Location) Y() int32 {
+	return loc[1]
 }
